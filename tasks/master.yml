@@ -1,0 +1,96 @@
+---
+- name: Generate kubeadm init configuration
+  template:
+    src: templates/kubeadm-init-config.yaml.j2
+    dest: /tmp/kubeadm-init-config.yaml
+    mode: '0644'
+  become: yes
+
+- name: Check if Kubernetes cluster is already initialized
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeconfig_exists
+
+- name: Initialize Kubernetes cluster with kubeadm
+  command: kubeadm init --config=/tmp/kubeadm-init-config.yaml
+  become: yes
+  register: kubeadm_init_result
+  when: not kubeconfig_exists.stat.exists
+
+- name: Create .kube directory for regular user
+  file:
+    path: "{{ ansible_env.HOME }}/.kube"
+    state: directory
+    mode: '0755'
+  when: not kubeconfig_exists.stat.exists
+
+- name: Copy admin.conf to user's kube config
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ ansible_env.HOME }}/.kube/config"
+    remote_src: yes
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+  become: yes
+  when: not kubeconfig_exists.stat.exists
+
+- name: Generate kubeadm join command
+  command: kubeadm token create --print-join-command
+  register: join_command_output
+  become: yes
+
+- name: Save join command to local fact
+  set_fact:
+    join_command: "{{ join_command_output.stdout }}"
+
+- name: Store join command for worker nodes
+  copy:
+    content: "{{ join_command }}"
+    dest: /tmp/kubeadm_join_command
+    mode: '0644'
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['workers'] }}"
+
+- name: Wait for Kubernetes API server to be ready
+  wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: 6443
+    delay: 30
+    timeout: 300
+
+- name: Install Canal (Calico + Flannel) CNI
+  get_url:
+    url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/canal.yaml"
+    dest: /tmp/canal.yaml
+    mode: '0644'
+  when: not kubeconfig_exists.stat.exists
+
+- name: Apply Canal CNI
+  kubernetes.core.k8s:
+    state: present
+    src: /tmp/canal.yaml
+  environment:
+    KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+  when: not kubeconfig_exists.stat.exists
+
+- name: Wait for all nodes to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 600
+  environment:
+    KUBECONFIG: "{{ ansible_env.HOME }}/.kube/config"
+
+- name: Clean up temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /tmp/kubeadm-init-config.yaml
+    - /tmp/canal.yaml
+  become: yes

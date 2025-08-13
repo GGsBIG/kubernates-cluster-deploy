@@ -1,0 +1,61 @@
+---
+- name: Deploy Kubernetes Cluster (1 Master + 2 Workers)
+  hosts: all
+  gather_facts: yes
+  serial: "{{ ansible_play_batch }}"
+  
+  tasks:
+    - name: Include common setup tasks
+      include_tasks: tasks/common.yml
+
+- name: Setup containerd on all nodes
+  hosts: k8s_nodes
+  gather_facts: yes
+  tasks:
+    - name: Include containerd installation tasks
+      include_tasks: tasks/containerd.yml
+
+- name: Install Kubernetes components
+  hosts: k8s_nodes
+  gather_facts: yes
+  tasks:
+    - name: Include Kubernetes installation tasks
+      include_tasks: tasks/kubernetes.yml
+
+- name: Initialize master node
+  hosts: masters
+  gather_facts: yes
+  tasks:
+    - name: Include master setup tasks
+      include_tasks: tasks/master.yml
+
+- name: Join worker nodes to cluster
+  hosts: workers
+  gather_facts: yes
+  tasks:
+    - name: Include worker setup tasks
+      include_tasks: tasks/worker.yml
+
+- name: Final cluster configuration
+  hosts: masters
+  gather_facts: yes
+  tasks:
+    - name: Label worker nodes
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Node
+          metadata:
+            name: "{{ hostvars[item]['hostname'] }}"
+            labels:
+              node-role.kubernetes.io/worker: ""
+      with_items: "{{ groups['workers'] }}"
+      
+    - name: Display cluster status
+      command: kubectl get nodes -o wide
+      register: cluster_status
+      
+    - name: Show cluster nodes
+      debug:
+        msg: "{{ cluster_status.stdout_lines }}"

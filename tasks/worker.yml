@@ -1,0 +1,35 @@
+---
+- name: Check if node is already joined to cluster
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf_exists
+
+- name: Read join command from file
+  slurp:
+    src: /tmp/kubeadm_join_command
+  register: join_command_content
+  when: not kubelet_conf_exists.stat.exists
+
+- name: Join worker node to Kubernetes cluster
+  command: "{{ join_command_content.content | b64decode | trim }}"
+  become: yes
+  register: join_result
+  when: not kubelet_conf_exists.stat.exists
+
+- name: Display join result
+  debug:
+    msg: "{{ join_result.stdout_lines }}"
+  when: not kubelet_conf_exists.stat.exists and join_result is defined
+
+- name: Wait for kubelet to be ready
+  wait_for:
+    host: 127.0.0.1
+    port: 10250
+    delay: 10
+    timeout: 300
+  when: not kubelet_conf_exists.stat.exists
+
+- name: Clean up join command file
+  file:
+    path: /tmp/kubeadm_join_command
+    state: absent

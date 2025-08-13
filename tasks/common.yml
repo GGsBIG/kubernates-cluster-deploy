@@ -1,0 +1,90 @@
+---
+- name: Set timezone to Asia/Taipei
+  timezone:
+    name: Asia/Taipei
+  become: yes
+
+- name: Install chrony for time synchronization
+  apt:
+    name: chrony
+    state: present
+    update_cache: yes
+  become: yes
+
+- name: Enable chrony service
+  systemd:
+    name: chrony
+    enabled: yes
+    state: started
+  become: yes
+
+- name: Configure chrony to use Google NTP
+  lineinfile:
+    path: /etc/chrony/chrony.conf
+    regexp: '^pool.*ubuntu.*'
+    line: '# pool ntp.ubuntu.com        iburst maxsources 4'
+    state: present
+  become: yes
+  notify: restart chrony
+
+- name: Add Google NTP server to chrony config
+  lineinfile:
+    path: /etc/chrony/chrony.conf
+    line: 'pool time.google.com iburst maxsources 4'
+    state: present
+  become: yes
+  notify: restart chrony
+
+- name: Disable swap immediately
+  command: swapoff -a
+  become: yes
+
+- name: Disable swap permanently
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    replace: '# \1'
+  become: yes
+
+- name: Load overlay kernel module
+  modprobe:
+    name: overlay
+    state: present
+  become: yes
+
+- name: Load br_netfilter kernel module
+  modprobe:
+    name: br_netfilter
+    state: present
+  become: yes
+
+- name: Create k8s.conf for persistent module loading
+  copy:
+    content: |
+      overlay
+      br_netfilter
+    dest: /etc/modules-load.d/k8s.conf
+    mode: '0644'
+  become: yes
+
+- name: Configure sysctl for Kubernetes
+  copy:
+    content: |
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.ipv4.ip_forward                 = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+    dest: /etc/sysctl.d/99-kubernetes-cri.conf
+    mode: '0644'
+  become: yes
+
+- name: Apply sysctl settings
+  command: sysctl --system
+  become: yes
+
+handlers:
+  - name: restart chrony
+    systemd:
+      name: chrony
+      state: restarted
+      daemon_reload: yes
+    become: yes

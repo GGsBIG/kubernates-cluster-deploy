@@ -1,0 +1,81 @@
+---
+- name: Install required packages for Kubernetes
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
+      - socat
+      - conntrack
+    state: present
+    update_cache: yes
+  become: yes
+
+- name: Create keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: Add Kubernetes GPG key
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  become: yes
+
+- name: Add Kubernetes APT repository
+  lineinfile:
+    path: /etc/apt/sources.list.d/kubernetes.list
+    line: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/ /"
+    create: yes
+    mode: '0644'
+  become: yes
+
+- name: Update APT cache after adding Kubernetes repository
+  apt:
+    update_cache: yes
+  become: yes
+
+- name: Install kubelet and kubeadm on all nodes
+  apt:
+    name:
+      - kubelet
+      - kubeadm
+    state: present
+  become: yes
+  when: inventory_hostname in groups['k8s_nodes']
+
+- name: Install kubectl on master nodes only
+  apt:
+    name: kubectl
+    state: present
+  become: yes
+  when: inventory_hostname in groups['masters']
+
+- name: Hold Kubernetes packages to prevent automatic updates
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  with_items:
+    - kubelet
+    - kubeadm
+    - kubectl
+  become: yes
+  when: inventory_hostname in groups['masters']
+
+- name: Hold Kubernetes packages on worker nodes
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  with_items:
+    - kubelet
+    - kubeadm
+  become: yes
+  when: inventory_hostname in groups['workers']
+
+- name: Enable kubelet service
+  systemd:
+    name: kubelet
+    enabled: yes
+  become: yes
