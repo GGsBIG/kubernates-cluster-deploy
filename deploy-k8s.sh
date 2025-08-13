@@ -31,7 +31,22 @@ check_requirements() {
     
     # Check for required tools
     if ! command -v ansible &> /dev/null; then
-        missing_tools+=("ansible")
+        echo -e "${YELLOW}Installing Ansible...${NC}"
+        if command -v apt &> /dev/null; then
+            sudo apt update && sudo apt install -y ansible
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y epel-release && sudo yum install -y ansible
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y ansible
+        elif command -v brew &> /dev/null; then
+            brew install ansible
+        elif command -v pip3 &> /dev/null; then
+            pip3 install --user ansible
+        elif command -v pip &> /dev/null; then
+            pip install --user ansible
+        else
+            missing_tools+=("ansible")
+        fi
     fi
     
     if ! command -v ansible-playbook &> /dev/null; then
