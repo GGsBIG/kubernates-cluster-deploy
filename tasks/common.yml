@@ -1,4 +1,18 @@
 ---
+- name: Wait for apt lock to be released
+  shell: |
+    while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+      sleep 5
+    done
+  become: yes
+  
+- name: Kill unattended-upgrades if running
+  shell: |
+    pkill -f unattended-upgrade || true
+    apt-get autoremove -y || true
+  become: yes
+  ignore_errors: yes
+
 - name: Set timezone to Asia/Taipei
   timezone:
     name: Asia/Taipei
