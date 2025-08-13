@@ -2,7 +2,6 @@
 - name: Deploy Kubernetes Cluster (1 Master + 2 Workers)
   hosts: all
   gather_facts: yes
-  serial: "{{ ansible_play_batch }}"
   
   tasks:
     - name: Include common setup tasks

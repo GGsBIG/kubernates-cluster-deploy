@@ -80,11 +80,3 @@
 - name: Apply sysctl settings
   command: sysctl --system
   become: yes
-
-handlers:
-  - name: restart chrony
-    systemd:
-      name: chrony
-      state: restarted
-      daemon_reload: yes
-    become: yes
